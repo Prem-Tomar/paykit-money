@@ -59,3 +59,79 @@ fn different_currencies_compare_unequal() {
 
     assert_ne!(usd, eur);
 }
+
+#[test]
+fn checked_add_combines_same_currency_amounts() {
+    let usd = currency("USD", 2);
+    let left = Money::from_minor_units(1_000, usd.clone());
+    let right = Money::from_minor_units(250, usd);
+
+    let result = left
+        .checked_add(&right)
+        .expect("same-currency addition should succeed");
+
+    assert_eq!(result.minor_units(), 1_250);
+    assert_eq!(result.currency().code(), "USD");
+}
+
+#[test]
+fn checked_sub_subtracts_same_currency_amounts() {
+    let usd = currency("USD", 2);
+    let left = Money::from_minor_units(1_000, usd.clone());
+    let right = Money::from_minor_units(250, usd);
+
+    let result = left
+        .checked_sub(&right)
+        .expect("same-currency subtraction should succeed");
+
+    assert_eq!(result.minor_units(), 750);
+    assert_eq!(result.currency().code(), "USD");
+}
+
+#[test]
+fn checked_sub_allows_negative_result() {
+    let usd = currency("USD", 2);
+    let left = Money::from_minor_units(250, usd.clone());
+    let right = Money::from_minor_units(1_000, usd);
+
+    let result = left
+        .checked_sub(&right)
+        .expect("negative money values are allowed by this foundational type");
+
+    assert_eq!(result.minor_units(), -750);
+    assert_eq!(result.currency().code(), "USD");
+}
+
+#[test]
+fn checked_add_rejects_cross_currency_amounts() {
+    let usd = Money::from_minor_units(1_000, currency("USD", 2));
+    let eur = Money::from_minor_units(250, currency("EUR", 2));
+
+    assert!(usd.checked_add(&eur).is_err());
+}
+
+#[test]
+fn checked_sub_rejects_cross_currency_amounts() {
+    let usd = Money::from_minor_units(1_000, currency("USD", 2));
+    let eur = Money::from_minor_units(250, currency("EUR", 2));
+
+    assert!(usd.checked_sub(&eur).is_err());
+}
+
+#[test]
+fn checked_add_rejects_integer_overflow() {
+    let usd = currency("USD", 2);
+    let left = Money::from_minor_units(i128::MAX, usd.clone());
+    let right = Money::from_minor_units(1, usd);
+
+    assert!(left.checked_add(&right).is_err());
+}
+
+#[test]
+fn checked_sub_rejects_integer_overflow() {
+    let usd = currency("USD", 2);
+    let left = Money::from_minor_units(i128::MIN, usd.clone());
+    let right = Money::from_minor_units(1, usd);
+
+    assert!(left.checked_sub(&right).is_err());
+}

@@ -32,4 +32,48 @@ impl Money {
     pub const fn currency(&self) -> &Currency {
         &self.currency
     }
+
+    pub fn checked_add(&self, other: &Money) -> Result<Money, MoneyError> {
+        if !Self::validated_currency(self, other) {
+            return Err(MoneyError::CurrencyMismatchError(
+                format!("Currency do not match for given values").to_owned(),
+            ));
+        }
+        match self.minor_units().checked_add(other.minor_units) {
+            Some(value) => Ok(Money::from_minor_units(value, self.currency.clone())),
+            None => {
+                return Err(MoneyError::MoneyAddError(
+                    format!("Could not add the value {}", other.minor_units()).to_owned(),
+                ));
+            }
+        }
+    }
+
+    pub fn checked_sub(&self, other: &Money) -> Result<Money, MoneyError> {
+        if !Self::validated_currency(self, other) {
+            return Err(MoneyError::CurrencyMismatchError(
+                format!("Currency do not match for given values").to_owned(),
+            ));
+        }
+        match self.minor_units().checked_sub(other.minor_units) {
+            Some(value) => Ok(Money::from_minor_units(value, self.currency.clone())),
+            None => {
+                return Err(MoneyError::MoneySubError(
+                    format!("Could not sub the value {}", other.minor_units()).to_owned(),
+                ));
+            }
+        }
+    }
+
+    fn validated_currency(left: &Money, right: &Money) -> bool {
+        left.currency() == right.currency()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+
+pub enum MoneyError {
+    CurrencyMismatchError(String),
+    MoneyAddError(String),
+    MoneySubError(String),
 }
