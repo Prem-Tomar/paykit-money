@@ -34,33 +34,52 @@ impl Money {
         &self.currency
     }
 
-    /// Adds money while checking overflow
-    pub fn checked_add(&self, other: &Money) -> Result<Money, MoneyError> {
+    pub 
+
+    /// Adds another amount of money with the same currency.
+    ///
+    /// Returns a new `Money` value when both amounts use the exact same `Currency`
+    /// definition and the resulting minor-unit amount fits in `i128`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MoneyError::CurrencyMismatch` when the two amounts do not share
+    /// the same currency definition. The currency code and minor-unit scale must both
+    /// match.
+    ///
+    /// Returns `MoneyError::AmountOverflow` when the addition would overflow the
+    /// `i128` minor-unit storage.
+    pub const fn checked_add(&self, other: &Money) -> Result<Money, MoneyError> {
         if !Self::validated_currency(self, other) {
-            return Err(MoneyError::CurrencyMismatchError(
-                "Currency do not match for given values".to_string(),
-            ));
+            return Err(MoneyError::CurrencyMismatch);
         }
         match self.minor_units().checked_add(other.minor_units) {
             Some(value) => Ok(Money::from_minor_units(value, self.currency.clone())),
-            None => Err(MoneyError::MoneyAddError(
-                format!("Could not add the value {}", other.minor_units()).to_owned(),
-            )),
+            None => Err(MoneyError::AmountOverflow),
         }
     }
 
-    ///Subtracts money while checking overflow
-    pub fn checked_sub(&self, other: &Money) -> Result<Money, MoneyError> {
+    /// Subtracts another amount of money with the same currency.
+    ///
+    /// Returns a new `Money` value when both amounts use the exact same `Currency`
+    /// definition and the resulting minor-unit amount fits in `i128`. Negative results
+    /// are allowed by this foundational type.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MoneyError::CurrencyMismatch` when the two amounts do not share
+    /// the same currency definition. The currency code and minor-unit scale must both
+    /// match.
+    ///
+    /// Returns `MoneyError::AmountOverflow` when the subtraction would overflow
+    /// the `i128` minor-unit storage.
+    pub const fn checked_sub(&self, other: &Money) -> Result<Money, MoneyError> {
         if !Self::validated_currency(self, other) {
-            return Err(MoneyError::CurrencyMismatchError(
-                "Currency do not match for given values".to_string(),
-            ));
+            return Err(MoneyError::CurrencyMismatch);
         }
         match self.minor_units().checked_sub(other.minor_units) {
             Some(value) => Ok(Money::from_minor_units(value, self.currency.clone())),
-            None => Err(MoneyError::MoneySubError(
-                format!("Could not sub the value {}", other.minor_units()).to_owned(),
-            )),
+            None => Err(MoneyError::AmountOverflow),
         }
     }
 
@@ -69,19 +88,19 @@ impl Money {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MoneyError {
-    CurrencyMismatchError(String),
-    MoneyAddError(String),
-    MoneySubError(String),
+    CurrencyMismatch,
+    AmountOverflow,
 }
 
 impl fmt::Display for MoneyError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CurrencyMismatchError(message)
-            | Self::MoneyAddError(message)
-            | Self::MoneySubError(message) => formatter.write_str(message),
+            Self::CurrencyMismatch => formatter.write_str("Currency validation failed"),
+            Self::AmountOverflow => {
+                formatter.write_str("Amount overflow while performing addition or subtraction")
+            }
         }
     }
 }

@@ -107,10 +107,7 @@ fn checked_add_rejects_cross_currency_amounts() {
     let usd = Money::from_minor_units(1_000, currency("USD", 2));
     let eur = Money::from_minor_units(250, currency("EUR", 2));
 
-    assert!(matches!(
-        usd.checked_add(&eur),
-        Err(MoneyError::CurrencyMismatchError(_))
-    ));
+    assert_eq!(usd.checked_add(&eur), Err(MoneyError::CurrencyMismatch));
 }
 
 #[test]
@@ -118,10 +115,29 @@ fn checked_sub_rejects_cross_currency_amounts() {
     let usd = Money::from_minor_units(1_000, currency("USD", 2));
     let eur = Money::from_minor_units(250, currency("EUR", 2));
 
-    assert!(matches!(
-        usd.checked_sub(&eur),
-        Err(MoneyError::CurrencyMismatchError(_))
-    ));
+    assert_eq!(usd.checked_sub(&eur), Err(MoneyError::CurrencyMismatch));
+}
+
+#[test]
+fn checked_add_rejects_same_code_with_different_minor_unit_scale() {
+    let usd_cents = Money::from_minor_units(1_000, currency("USD", 2));
+    let usd_mills = Money::from_minor_units(250, currency("USD", 3));
+
+    assert_eq!(
+        usd_cents.checked_add(&usd_mills),
+        Err(MoneyError::CurrencyMismatch)
+    );
+}
+
+#[test]
+fn checked_sub_rejects_same_code_with_different_minor_unit_scale() {
+    let usd_cents = Money::from_minor_units(1_000, currency("USD", 2));
+    let usd_mills = Money::from_minor_units(250, currency("USD", 3));
+
+    assert_eq!(
+        usd_cents.checked_sub(&usd_mills),
+        Err(MoneyError::CurrencyMismatch)
+    );
 }
 
 #[test]
@@ -130,10 +146,7 @@ fn checked_add_rejects_integer_overflow() {
     let left = Money::from_minor_units(i128::MAX, usd.clone());
     let right = Money::from_minor_units(1, usd);
 
-    assert!(matches!(
-        left.checked_add(&right),
-        Err(MoneyError::MoneyAddError(_))
-    ));
+    assert_eq!(left.checked_add(&right), Err(MoneyError::AmountOverflow));
 }
 
 #[test]
@@ -142,29 +155,22 @@ fn checked_sub_rejects_integer_overflow() {
     let left = Money::from_minor_units(i128::MIN, usd.clone());
     let right = Money::from_minor_units(1, usd);
 
-    assert!(matches!(
-        left.checked_sub(&right),
-        Err(MoneyError::MoneySubError(_))
-    ));
+    assert_eq!(left.checked_sub(&right), Err(MoneyError::AmountOverflow));
 }
 
 #[test]
 fn displays_currency_mismatch_error() {
-    let error = MoneyError::CurrencyMismatchError("currencies do not match".into());
+    let error = MoneyError::CurrencyMismatch;
 
-    assert_eq!(error.to_string(), "currencies do not match");
+    assert_eq!(error.to_string(), "Currency validation failed");
 }
 
 #[test]
-fn displays_addition_overflow_error() {
-    let error = MoneyError::MoneyAddError("money addition overflowed".into());
+fn displays_amount_overflow_error() {
+    let error = MoneyError::AmountOverflow;
 
-    assert_eq!(error.to_string(), "money addition overflowed");
-}
-
-#[test]
-fn displays_subtraction_overflow_error() {
-    let error = MoneyError::MoneySubError("money subtraction overflowed".into());
-
-    assert_eq!(error.to_string(), "money subtraction overflowed");
+    assert_eq!(
+        error.to_string(),
+        "Amount overflow while performing addition or subtraction"
+    );
 }
