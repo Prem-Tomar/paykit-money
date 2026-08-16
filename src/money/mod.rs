@@ -1,4 +1,5 @@
 use crate::Currency;
+use std::fmt;
 
 /// An exact monetary amount expressed in a currency's minor units.
 ///
@@ -33,35 +34,33 @@ impl Money {
         &self.currency
     }
 
+    /// Adds money while checking overflow
     pub fn checked_add(&self, other: &Money) -> Result<Money, MoneyError> {
         if !Self::validated_currency(self, other) {
             return Err(MoneyError::CurrencyMismatchError(
-                format!("Currency do not match for given values").to_owned(),
+                "Currency do not match for given values".to_string(),
             ));
         }
         match self.minor_units().checked_add(other.minor_units) {
             Some(value) => Ok(Money::from_minor_units(value, self.currency.clone())),
-            None => {
-                return Err(MoneyError::MoneyAddError(
-                    format!("Could not add the value {}", other.minor_units()).to_owned(),
-                ));
-            }
+            None => Err(MoneyError::MoneyAddError(
+                format!("Could not add the value {}", other.minor_units()).to_owned(),
+            )),
         }
     }
 
+    ///Subtracts money while checking overflow
     pub fn checked_sub(&self, other: &Money) -> Result<Money, MoneyError> {
         if !Self::validated_currency(self, other) {
             return Err(MoneyError::CurrencyMismatchError(
-                format!("Currency do not match for given values").to_owned(),
+                "Currency do not match for given values".to_string(),
             ));
         }
         match self.minor_units().checked_sub(other.minor_units) {
             Some(value) => Ok(Money::from_minor_units(value, self.currency.clone())),
-            None => {
-                return Err(MoneyError::MoneySubError(
-                    format!("Could not sub the value {}", other.minor_units()).to_owned(),
-                ));
-            }
+            None => Err(MoneyError::MoneySubError(
+                format!("Could not sub the value {}", other.minor_units()).to_owned(),
+            )),
         }
     }
 
@@ -70,10 +69,21 @@ impl Money {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-
+#[derive(Debug, Clone)]
 pub enum MoneyError {
     CurrencyMismatchError(String),
     MoneyAddError(String),
     MoneySubError(String),
 }
+
+impl fmt::Display for MoneyError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CurrencyMismatchError(message)
+            | Self::MoneyAddError(message)
+            | Self::MoneySubError(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for MoneyError {}

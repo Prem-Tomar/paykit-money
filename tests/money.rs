@@ -1,4 +1,4 @@
-use paykit_money::{Currency, Money};
+use paykit_money::{Currency, Money, MoneyError};
 
 fn currency(code: &str, minor_units: u8) -> Currency {
     Currency::new(code, minor_units)
@@ -107,7 +107,10 @@ fn checked_add_rejects_cross_currency_amounts() {
     let usd = Money::from_minor_units(1_000, currency("USD", 2));
     let eur = Money::from_minor_units(250, currency("EUR", 2));
 
-    assert!(usd.checked_add(&eur).is_err());
+    assert!(matches!(
+        usd.checked_add(&eur),
+        Err(MoneyError::CurrencyMismatchError(_))
+    ));
 }
 
 #[test]
@@ -115,7 +118,10 @@ fn checked_sub_rejects_cross_currency_amounts() {
     let usd = Money::from_minor_units(1_000, currency("USD", 2));
     let eur = Money::from_minor_units(250, currency("EUR", 2));
 
-    assert!(usd.checked_sub(&eur).is_err());
+    assert!(matches!(
+        usd.checked_sub(&eur),
+        Err(MoneyError::CurrencyMismatchError(_))
+    ));
 }
 
 #[test]
@@ -124,7 +130,10 @@ fn checked_add_rejects_integer_overflow() {
     let left = Money::from_minor_units(i128::MAX, usd.clone());
     let right = Money::from_minor_units(1, usd);
 
-    assert!(left.checked_add(&right).is_err());
+    assert!(matches!(
+        left.checked_add(&right),
+        Err(MoneyError::MoneyAddError(_))
+    ));
 }
 
 #[test]
@@ -133,5 +142,29 @@ fn checked_sub_rejects_integer_overflow() {
     let left = Money::from_minor_units(i128::MIN, usd.clone());
     let right = Money::from_minor_units(1, usd);
 
-    assert!(left.checked_sub(&right).is_err());
+    assert!(matches!(
+        left.checked_sub(&right),
+        Err(MoneyError::MoneySubError(_))
+    ));
+}
+
+#[test]
+fn displays_currency_mismatch_error() {
+    let error = MoneyError::CurrencyMismatchError("currencies do not match".into());
+
+    assert_eq!(error.to_string(), "currencies do not match");
+}
+
+#[test]
+fn displays_addition_overflow_error() {
+    let error = MoneyError::MoneyAddError("money addition overflowed".into());
+
+    assert_eq!(error.to_string(), "money addition overflowed");
+}
+
+#[test]
+fn displays_subtraction_overflow_error() {
+    let error = MoneyError::MoneySubError("money subtraction overflowed".into());
+
+    assert_eq!(error.to_string(), "money subtraction overflowed");
 }

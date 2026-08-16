@@ -7,4 +7,4 @@ mod currency;
 mod money;
 
 pub use currency::{Currency, CurrencyError};
-pub use money::Money;
+pub use money::{Money, MoneyError};
