@@ -1,4 +1,4 @@
-use paykit_money::{Currency, Money, MoneyError};
+use paykit_money::{Currency, Money, MoneyError, MoneyParseError};
 
 fn currency(code: &str, minor_units: u8) -> Currency {
     Currency::new(code, minor_units)
@@ -34,6 +34,106 @@ fn preserves_negative_amount() {
     let money = Money::from_minor_units(-250, currency("USD", 2));
 
     assert_eq!(money.minor_units(), -250);
+}
+
+#[test]
+fn parses_decimal_major_units_exactly() {
+    let money = Money::from_major_units("10.50", currency("USD", 2))
+        .expect("valid decimal amount should parse");
+
+    assert_eq!(money.minor_units(), 1_050);
+    assert_eq!(money.currency().code(), "USD");
+}
+
+#[test]
+fn parses_short_fraction_by_padding_to_currency_scale() {
+    let money = Money::from_major_units("10.5", currency("USD", 2))
+        .expect("short decimal amount should parse");
+
+    assert_eq!(money.minor_units(), 1_050);
+}
+
+#[test]
+fn parses_whole_major_units_using_currency_scale() {
+    let money =
+        Money::from_major_units("10", currency("USD", 2)).expect("whole amount should parse");
+
+    assert_eq!(money.minor_units(), 1_000);
+}
+
+#[test]
+fn parses_currency_without_fractional_minor_units() {
+    let money =
+        Money::from_major_units("500", currency("JPY", 0)).expect("whole JPY amount should parse");
+
+    assert_eq!(money.minor_units(), 500);
+    assert_eq!(money.currency().code(), "JPY");
+}
+
+#[test]
+fn parses_negative_major_units() {
+    let money = Money::from_major_units("-10.50", currency("USD", 2))
+        .expect("negative amount should parse");
+
+    assert_eq!(money.minor_units(), -1_050);
+}
+
+#[test]
+fn parses_amount_with_surrounding_whitespace() {
+    let money = Money::from_major_units("  10.50  ", currency("USD", 2))
+        .expect("trimmed amount should parse");
+
+    assert_eq!(money.minor_units(), 1_050);
+}
+
+#[test]
+fn rejects_explicit_plus_sign() {
+    let result = Money::from_major_units("+10.50", currency("USD", 2));
+
+    assert_eq!(result, Err(MoneyParseError::InvalidFormat));
+}
+
+#[test]
+fn rejects_excess_fractional_precision() {
+    let result = Money::from_major_units("10.001", currency("USD", 2));
+
+    assert_eq!(result, Err(MoneyParseError::TooManyFractionalDigits));
+}
+
+#[test]
+fn rejects_fractional_digits_for_zero_scale_currency() {
+    let result = Money::from_major_units("500.1", currency("JPY", 0));
+
+    assert_eq!(result, Err(MoneyParseError::TooManyFractionalDigits));
+}
+
+#[test]
+fn rejects_empty_major_unit_input() {
+    let result = Money::from_major_units("", currency("USD", 2));
+
+    assert_eq!(result, Err(MoneyParseError::Empty));
+}
+
+#[test]
+fn rejects_malformed_major_unit_input() {
+    let usd = currency("USD", 2);
+
+    for input in ["abc", "10.2.3", "10.", ".50", "+", "-"] {
+        assert_eq!(
+            Money::from_major_units(input, usd.clone()),
+            Err(MoneyParseError::InvalidFormat)
+        );
+    }
+}
+
+#[test]
+fn rejects_major_unit_amount_overflow() {
+    let result = Money::from_major_units(
+        "170141183460469231731687303715884105728",
+        currency("USD", 2),
+    );
+
+    assert_eq!(result, Err(MoneyParseError::AmountOverflow));
 }
 
 #[test]
