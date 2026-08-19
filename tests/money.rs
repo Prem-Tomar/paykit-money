@@ -37,6 +37,58 @@ fn preserves_negative_amount() {
 }
 
 #[test]
+fn displays_positive_money_with_fixed_fractional_precision() {
+    let money = Money::from_minor_units(1_050, currency("USD", 2));
+
+    assert_eq!(money.to_string(), "USD 10.50");
+}
+
+#[test]
+fn displays_negative_money_with_sign_before_amount() {
+    let money = Money::from_minor_units(-1_050, currency("USD", 2));
+
+    assert_eq!(money.to_string(), "USD -10.50");
+}
+
+#[test]
+fn displays_zero_with_currency_precision() {
+    let money = Money::from_minor_units(0, currency("USD", 2));
+
+    assert_eq!(money.to_string(), "USD 0.00");
+}
+
+#[test]
+fn displays_money_without_fractional_minor_units() {
+    let money = Money::from_minor_units(500, currency("JPY", 0));
+
+    assert_eq!(money.to_string(), "JPY 500");
+}
+
+#[test]
+fn displays_sub_major_unit_amount_with_leading_zeroes() {
+    let money = Money::from_minor_units(5, currency("USD", 2));
+
+    assert_eq!(money.to_string(), "USD 0.05");
+}
+
+#[test]
+fn displays_custom_currency_scale() {
+    let money = Money::from_minor_units(12_030, currency("XYZ", 4));
+
+    assert_eq!(money.to_string(), "XYZ 1.2030");
+}
+
+#[test]
+fn displays_minimum_minor_unit_amount_without_overflow() {
+    let money = Money::from_minor_units(i128::MIN, currency("JPY", 0));
+
+    assert_eq!(
+        money.to_string(),
+        "JPY -170141183460469231731687303715884105728"
+    );
+}
+
+#[test]
 fn parses_decimal_major_units_exactly() {
     let money = Money::from_major_units("10.50", currency("USD", 2))
         .expect("valid decimal amount should parse");
@@ -131,6 +183,48 @@ fn rejects_major_unit_amount_overflow() {
     let result = Money::from_major_units(
         "170141183460469231731687303715884105728",
         currency("USD", 2),
+    );
+
+    assert_eq!(result, Err(MoneyParseError::AmountOverflow));
+}
+
+#[test]
+fn parses_maximum_i128_minor_unit_amount() {
+    let money = Money::from_major_units(
+        "170141183460469231731687303715884105727",
+        currency("JPY", 0),
+    )
+    .expect("maximum i128 amount should parse");
+
+    assert_eq!(money.minor_units(), i128::MAX);
+}
+
+#[test]
+fn parses_minimum_i128_minor_unit_amount() {
+    let money = Money::from_major_units(
+        "-170141183460469231731687303715884105728",
+        currency("JPY", 0),
+    )
+    .expect("minimum i128 amount should parse");
+
+    assert_eq!(money.minor_units(), i128::MIN);
+}
+
+#[test]
+fn rejects_amount_above_maximum_i128() {
+    let result = Money::from_major_units(
+        "170141183460469231731687303715884105728",
+        currency("JPY", 0),
+    );
+
+    assert_eq!(result, Err(MoneyParseError::AmountOverflow));
+}
+
+#[test]
+fn rejects_amount_below_minimum_i128() {
+    let result = Money::from_major_units(
+        "-170141183460469231731687303715884105729",
+        currency("JPY", 0),
     );
 
     assert_eq!(result, Err(MoneyParseError::AmountOverflow));
