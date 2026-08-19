@@ -263,9 +263,12 @@ fn parse_unsigned_u128(input: &str) -> Result<u128, MoneyParseError> {
     Ok(value)
 }
 
+/// An error returned by checked arithmetic on [`Money`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MoneyError {
+    /// The operands use different currency codes or minor-unit scales.
     CurrencyMismatch,
+    /// The result cannot be represented by the signed `i128` minor-unit storage.
     AmountOverflow,
 }
 
@@ -282,11 +285,16 @@ impl fmt::Display for MoneyError {
 
 impl std::error::Error for MoneyError {}
 
+/// An error returned when parsing a major-unit amount into [`Money`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MoneyParseError {
+    /// The input contains no characters after surrounding whitespace is removed.
     Empty,
+    /// The input is not a supported decimal amount.
     InvalidFormat,
+    /// The fractional precision exceeds the currency's minor-unit scale.
     TooManyFractionalDigits,
+    /// The scaled amount cannot be represented by the signed `i128` minor-unit storage.
     AmountOverflow,
 }
 

@@ -79,6 +79,13 @@ fn displays_custom_currency_scale() {
 }
 
 #[test]
+fn displays_one_minor_unit_at_maximum_supported_scale() {
+    let money = Money::from_minor_units(1, currency("MAX", Currency::MAX_MINOR_UNITS));
+
+    assert_eq!(money.to_string(), "MAX 0.000000000000000001");
+}
+
+#[test]
 fn displays_minimum_minor_unit_amount_without_overflow() {
     let money = Money::from_minor_units(i128::MIN, currency("JPY", 0));
 
@@ -208,6 +215,21 @@ fn parses_minimum_i128_minor_unit_amount() {
     .expect("minimum i128 amount should parse");
 
     assert_eq!(money.minor_units(), i128::MIN);
+}
+
+#[test]
+fn parses_minimum_i128_minor_unit_amount_with_fractional_scale() {
+    let money = Money::from_major_units(
+        "-1701411834604692317316873037158841057.28",
+        currency("USD", 2),
+    )
+    .expect("minimum i128 amount should parse at a nonzero scale");
+
+    assert_eq!(money.minor_units(), i128::MIN);
+    assert_eq!(
+        money.to_string(),
+        "USD -1701411834604692317316873037158841057.28"
+    );
 }
 
 #[test]
@@ -366,5 +388,34 @@ fn displays_amount_overflow_error() {
     assert_eq!(
         error.to_string(),
         "Amount overflow while performing addition or subtraction"
+    );
+}
+
+#[test]
+fn displays_empty_parse_error() {
+    assert_eq!(MoneyParseError::Empty.to_string(), "money amount is empty");
+}
+
+#[test]
+fn displays_invalid_format_parse_error() {
+    assert_eq!(
+        MoneyParseError::InvalidFormat.to_string(),
+        "money amount format is invalid"
+    );
+}
+
+#[test]
+fn displays_excess_precision_parse_error() {
+    assert_eq!(
+        MoneyParseError::TooManyFractionalDigits.to_string(),
+        "money amount has too many fractional digits"
+    );
+}
+
+#[test]
+fn displays_parse_overflow_error() {
+    assert_eq!(
+        MoneyParseError::AmountOverflow.to_string(),
+        "money amount overflowed"
     );
 }
