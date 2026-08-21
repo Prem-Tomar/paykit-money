@@ -321,6 +321,7 @@ impl Money {
 
     fn get_signed_minor_units(quotient: u128, is_negative: bool) -> i128 {
         if is_negative {
+            // `i128::MIN` has no positive `i128` counterpart, so restore it directly.
             if quotient == i128::MIN.unsigned_abs() {
                 i128::MIN
             } else {
@@ -400,6 +401,7 @@ fn parse_unsigned_u128(input: &str) -> Result<u128, MoneyParseError> {
 
 fn restore_sign(magnitude: u128, is_negative: bool) -> i128 {
     if is_negative {
+        // `i128::MIN` has no positive `i128` counterpart, so restore it directly.
         if magnitude == i128::MIN.unsigned_abs() {
             i128::MIN
         } else {
