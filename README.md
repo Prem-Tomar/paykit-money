@@ -63,6 +63,31 @@ assert_eq!(
 `Display` is stable and non-localized. Its form is `<CODE> <AMOUNT>`, with exactly the
 currency scale's number of fractional digits. It does not add symbols or digit grouping.
 
+## Explicit rounding
+
+`Money::div_rounded` divides stored minor units by a positive integer. The divisor uses
+`NonZeroU128`, so zero and negative divisors cannot enter the operation. The caller must
+select a `RoundingMode`; the crate does not apply a hidden default.
+
+```rust
+use std::num::NonZeroU128;
+
+use paykit_money::{Currency, Money, RoundingMode};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let usd = Currency::new("USD", 2)?;
+let amount = Money::from_minor_units(1_000, usd);
+let three = NonZeroU128::new(3).expect("three is nonzero");
+
+let truncated = amount.div_rounded(three, RoundingMode::TowardZero);
+assert_eq!(truncated.to_string(), "USD 3.33");
+
+let rounded_up = amount.div_rounded(three, RoundingMode::AwayFromZero);
+assert_eq!(rounded_up.to_string(), "USD 3.34");
+# Ok(())
+# }
+```
+
 ## Validation
 
 ```text

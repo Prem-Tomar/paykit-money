@@ -1,6 +1,11 @@
+mod rounding_mode;
+
 use crate::Currency;
 use std::fmt;
 use std::fmt::Display;
+use std::num::NonZeroU128;
+
+pub use rounding_mode::RoundingMode;
 
 /// An exact monetary amount expressed in a currency's minor units.
 ///
@@ -196,6 +201,41 @@ impl Money {
         }
     }
 
+    /// Divides this amount by a positive integer and explicitly rounds any fractional
+    /// minor-unit result.
+    ///
+    /// The operation divides the stored minor units, preserves the currency, and never uses
+    /// floating-point arithmetic. A zero divisor cannot be passed because [`NonZeroU128`]
+    /// enforces that invariant.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::num::NonZeroU128;
+    ///
+    /// use paykit_money::{Currency, Money, RoundingMode};
+    ///
+    /// let usd = Currency::new("USD", 2)?;
+    /// let amount = Money::from_minor_units(1_000, usd);
+    /// let divisor = NonZeroU128::new(3).expect("three is nonzero");
+    ///
+    /// let share = amount.div_rounded(divisor, RoundingMode::TowardZero);
+    /// assert_eq!(share.to_string(), "USD 3.33");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn div_rounded(&self, divisor: NonZeroU128, mode: RoundingMode) -> Money {
+        let magnitude = self.minor_units.unsigned_abs();
+        let divisor_value = divisor.get();
+        let quotient = magnitude / divisor_value;
+        let remainder = magnitude % divisor_value;
+        let is_negative = self.minor_units.is_negative();
+        let rounded_magnitude = mode.round_magnitude(quotient, remainder, divisor, is_negative);
+        let rounded_minor_units = restore_sign(rounded_magnitude, is_negative);
+
+        Money::from_minor_units(rounded_minor_units, self.currency.clone())
+    }
+
     fn validated_currency(left: &Money, right: &Money) -> bool {
         left.currency() == right.currency()
     }
@@ -261,6 +301,20 @@ fn parse_unsigned_u128(input: &str) -> Result<u128, MoneyParseError> {
     }
 
     Ok(value)
+}
+
+fn restore_sign(magnitude: u128, is_negative: bool) -> i128 {
+    if is_negative {
+        if magnitude == i128::MIN.unsigned_abs() {
+            i128::MIN
+        } else {
+            -i128::try_from(magnitude)
+                .expect("a rounded negative magnitude smaller than i128::MIN must fit in i128")
+        }
+    } else {
+        i128::try_from(magnitude)
+            .expect("a rounded positive magnitude derived from i128 must fit in i128")
+    }
 }
 
 /// An error returned by checked arithmetic on [`Money`].

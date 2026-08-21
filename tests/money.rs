@@ -1,8 +1,14 @@
-use paykit_money::{Currency, Money, MoneyError, MoneyParseError};
+use std::num::NonZeroU128;
+
+use paykit_money::{Currency, Money, MoneyError, MoneyParseError, RoundingMode};
 
 fn currency(code: &str, minor_units: u8) -> Currency {
     Currency::new(code, minor_units)
         .unwrap_or_else(|error| panic!("expected a valid currency definition: {error}"))
+}
+
+fn divisor(value: u128) -> NonZeroU128 {
+    NonZeroU128::new(value).expect("test divisor must be nonzero")
 }
 
 #[test]
@@ -417,5 +423,208 @@ fn displays_parse_overflow_error() {
     assert_eq!(
         MoneyParseError::AmountOverflow.to_string(),
         "money amount overflowed"
+    );
+}
+
+#[test]
+fn rounded_division_returns_exact_quotient_for_every_mode() {
+    let usd = currency("USD", 2);
+    let positive = Money::from_minor_units(1_200, usd.clone());
+    let negative = Money::from_minor_units(-1_200, usd);
+    let modes = [
+        RoundingMode::TowardZero,
+        RoundingMode::AwayFromZero,
+        RoundingMode::Floor,
+        RoundingMode::Ceiling,
+        RoundingMode::HalfAwayFromZero,
+        RoundingMode::HalfEven,
+    ];
+
+    for mode in modes {
+        assert_eq!(positive.div_rounded(divisor(3), mode).minor_units(), 400);
+        assert_eq!(negative.div_rounded(divisor(3), mode).minor_units(), -400);
+    }
+}
+
+#[test]
+fn rounds_toward_zero_for_positive_and_negative_amounts() {
+    let usd = currency("USD", 2);
+    let positive = Money::from_minor_units(1_000, usd.clone());
+    let negative = Money::from_minor_units(-1_000, usd);
+
+    assert_eq!(
+        positive
+            .div_rounded(divisor(3), RoundingMode::TowardZero)
+            .minor_units(),
+        333
+    );
+    assert_eq!(
+        negative
+            .div_rounded(divisor(3), RoundingMode::TowardZero)
+            .minor_units(),
+        -333
+    );
+}
+
+#[test]
+fn rounds_away_from_zero_for_positive_and_negative_amounts() {
+    let usd = currency("USD", 2);
+    let positive = Money::from_minor_units(1_000, usd.clone());
+    let negative = Money::from_minor_units(-1_000, usd);
+
+    assert_eq!(
+        positive
+            .div_rounded(divisor(3), RoundingMode::AwayFromZero)
+            .minor_units(),
+        334
+    );
+    assert_eq!(
+        negative
+            .div_rounded(divisor(3), RoundingMode::AwayFromZero)
+            .minor_units(),
+        -334
+    );
+}
+
+#[test]
+fn floor_and_ceiling_follow_mathematical_direction() {
+    let usd = currency("USD", 2);
+    let positive = Money::from_minor_units(1_000, usd.clone());
+    let negative = Money::from_minor_units(-1_000, usd);
+
+    assert_eq!(
+        positive
+            .div_rounded(divisor(3), RoundingMode::Floor)
+            .minor_units(),
+        333
+    );
+    assert_eq!(
+        positive
+            .div_rounded(divisor(3), RoundingMode::Ceiling)
+            .minor_units(),
+        334
+    );
+    assert_eq!(
+        negative
+            .div_rounded(divisor(3), RoundingMode::Floor)
+            .minor_units(),
+        -334
+    );
+    assert_eq!(
+        negative
+            .div_rounded(divisor(3), RoundingMode::Ceiling)
+            .minor_units(),
+        -333
+    );
+}
+
+#[test]
+fn half_away_from_zero_uses_nearest_value_and_breaks_ties_away() {
+    let usd = currency("USD", 2);
+    let cases = [
+        (7, 3, 2),
+        (8, 3, 3),
+        (5, 2, 3),
+        (-7, 3, -2),
+        (-8, 3, -3),
+        (-5, 2, -3),
+    ];
+
+    for (minor_units, divisor_value, expected) in cases {
+        let amount = Money::from_minor_units(minor_units, usd.clone());
+        assert_eq!(
+            amount
+                .div_rounded(divisor(divisor_value), RoundingMode::HalfAwayFromZero)
+                .minor_units(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn half_even_breaks_exact_ties_toward_the_even_integer() {
+    let usd = currency("USD", 2);
+    let cases = [(5, 2), (7, 4), (9, 4), (-5, -2), (-7, -4), (-9, -4)];
+
+    for (minor_units, expected) in cases {
+        let amount = Money::from_minor_units(minor_units, usd.clone());
+        assert_eq!(
+            amount
+                .div_rounded(divisor(2), RoundingMode::HalfEven)
+                .minor_units(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn half_even_uses_the_nearest_integer_when_result_is_not_tied() {
+    let usd = currency("USD", 2);
+    let cases = [(7, 2), (8, 3), (-7, -2), (-8, -3)];
+
+    for (minor_units, expected) in cases {
+        let amount = Money::from_minor_units(minor_units, usd.clone());
+        assert_eq!(
+            amount
+                .div_rounded(divisor(3), RoundingMode::HalfEven)
+                .minor_units(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn rounded_division_preserves_currency_definition() {
+    let amount = Money::from_minor_units(1_000, currency("XYZ", 4));
+
+    let result = amount.div_rounded(divisor(3), RoundingMode::HalfEven);
+
+    assert_eq!(result.currency(), amount.currency());
+    assert_eq!(result.currency().code(), "XYZ");
+    assert_eq!(result.currency().minor_units(), 4);
+}
+
+#[test]
+fn rounded_division_handles_zero_and_full_i128_range() {
+    let usd = currency("USD", 2);
+    let zero = Money::from_minor_units(0, usd.clone());
+    let minimum = Money::from_minor_units(i128::MIN, usd.clone());
+    let maximum = Money::from_minor_units(i128::MAX, usd);
+
+    assert_eq!(
+        zero.div_rounded(divisor(u128::MAX), RoundingMode::AwayFromZero)
+            .minor_units(),
+        0
+    );
+    assert_eq!(
+        minimum
+            .div_rounded(divisor(1), RoundingMode::HalfEven)
+            .minor_units(),
+        i128::MIN
+    );
+    assert_eq!(
+        maximum
+            .div_rounded(divisor(1), RoundingMode::HalfEven)
+            .minor_units(),
+        i128::MAX
+    );
+}
+
+#[test]
+fn halfway_comparison_supports_u128_max_without_overflow() {
+    let positive = Money::from_minor_units(i128::MAX, currency("USD", 2));
+    let negative = Money::from_minor_units(i128::MIN, currency("USD", 2));
+
+    assert_eq!(
+        positive
+            .div_rounded(divisor(u128::MAX), RoundingMode::HalfEven)
+            .minor_units(),
+        0
+    );
+    assert_eq!(
+        negative
+            .div_rounded(divisor(u128::MAX), RoundingMode::HalfEven)
+            .minor_units(),
+        -1
     );
 }
