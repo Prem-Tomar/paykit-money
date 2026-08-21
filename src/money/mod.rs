@@ -2,6 +2,8 @@ mod rounding_mode;
 
 use crate::Currency;
 #[cfg(feature = "serde")]
+use serde::ser::SerializeStruct;
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Display;
@@ -16,10 +18,26 @@ pub use rounding_mode::RoundingMode;
 /// zero or negative values.
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Money {
     minor_units: i128,
     currency: Currency,
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for Money {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Keep the public wire shape explicit instead of exposing the struct layout by derive.
+        let mut state = serializer.serialize_struct("Money", 2)?;
+
+        // Serialize the full i128 amount as a decimal string so JSON consumers cannot lose
+        // precision when their native number type cannot represent every i128 value.
+        state.serialize_field("minor_units", &MinorUnitsAsString(self.minor_units))?;
+        state.serialize_field("currency", &self.currency)?;
+        state.end()
+    }
 }
 
 #[cfg(feature = "serde")]
@@ -28,14 +46,37 @@ impl<'de> Deserialize<'de> for Money {
     where
         D: serde::Deserializer<'de>,
     {
+        // Accept only the documented string amount and a Currency that validates itself.
         #[derive(serde::Deserialize)]
         struct MoneyWire {
-            minor_units: i128,
+            minor_units: String,
             currency: Currency,
         }
 
+        // Let Serde validate the object shape and primitive field types first.
         let wire = MoneyWire::deserialize(deserializer)?;
-        Ok(Money::from_minor_units(wire.minor_units, wire.currency))
+
+        // Convert the exact decimal string into the complete signed i128 range.
+        let minor_units = wire
+            .minor_units
+            .parse::<i128>()
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(Money::from_minor_units(minor_units, wire.currency))
+    }
+}
+
+#[cfg(feature = "serde")]
+struct MinorUnitsAsString(i128);
+
+#[cfg(feature = "serde")]
+impl Serialize for MinorUnitsAsString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // collect_str writes the Display representation as a serialized string.
+        serializer.collect_str(&self.0)
     }
 }
 

@@ -88,13 +88,42 @@ assert_eq!(rounded_up.to_string(), "USD 3.34");
 # }
 ```
 
+## Optional Serde support
+
+Serde support is opt-in so default builds do not depend on Serde:
+
+```toml
+[dependencies]
+paykit-money = { version = "0.1", features = ["serde"] }
+```
+
+`Money` uses a stable object representation whose `minor_units` field is a decimal string:
+
+```json
+{
+  "minor_units": "1050",
+  "currency": {
+    "code": "USD",
+    "minor_units": 2
+  }
+}
+```
+
+The string preserves the complete signed `i128` range in JSON and in consumers whose numeric
+types cannot exactly represent 128-bit integers. Deserialization rejects numeric, fractional,
+malformed, and overflowing amount values. The nested currency is validated using the same
+invariants as `Currency::new`.
+
 ## Validation
 
 ```text
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
 cargo doc --no-deps
+cargo doc --no-deps --all-features
 ```
 
 ## Status
