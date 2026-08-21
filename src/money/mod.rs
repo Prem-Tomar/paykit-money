@@ -1,6 +1,8 @@
 mod rounding_mode;
 
 use crate::Currency;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Display;
 use std::num::NonZeroU128;
@@ -12,10 +14,29 @@ pub use rounding_mode::RoundingMode;
 /// The amount is stored as an integer, so constructing a `Money` value never introduces
 /// floating-point rounding. Domain layers may decide whether a particular operation permits
 /// zero or negative values.
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Money {
     minor_units: i128,
     currency: Currency,
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for Money {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct MoneyWire {
+            minor_units: i128,
+            currency: Currency,
+        }
+
+        let wire = MoneyWire::deserialize(deserializer)?;
+        Ok(Money::from_minor_units(wire.minor_units, wire.currency))
+    }
 }
 
 impl Money {

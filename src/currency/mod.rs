@@ -1,3 +1,6 @@
+// Keep Serde completely optional for consumers that do not enable the `serde` feature.
+#[cfg(feature = "serde")]
+use serde::Serialize;
 use std::error::Error;
 use std::fmt;
 
@@ -6,10 +9,33 @@ use std::fmt;
 /// A currency consists of a three-letter uppercase ASCII code and the number of digits
 /// used for its minor units. The type is intentionally data-driven: applications can
 /// introduce new currency definitions without changing this crate.
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Currency {
     code: String,
     minor_units: u8,
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Currency {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // First collect external data without claiming that it is a valid Currency.
+        #[derive(serde::Deserialize)]
+        struct CurrencyWire {
+            code: String,
+            minor_units: u8,
+        }
+
+        // Let the selected data format validate field names and primitive field types.
+        let wire = CurrencyWire::deserialize(deserializer)?;
+
+        // Route construction through the public validator so deserialization cannot bypass
+        // currency-code or minor-unit-scale invariants.
+        Currency::new(wire.code, wire.minor_units).map_err(serde::de::Error::custom)
+    }
 }
 
 /// An error returned when a currency definition violates its structural invariants.
