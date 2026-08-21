@@ -1,4 +1,4 @@
-use std::num::NonZeroU128;
+use std::num::{NonZeroU8, NonZeroU128};
 
 use paykit_money::{Currency, Money, MoneyError, MoneyParseError, RoundingMode};
 
@@ -9,6 +9,14 @@ fn currency(code: &str, minor_units: u8) -> Currency {
 
 fn divisor(value: u128) -> NonZeroU128 {
     NonZeroU128::new(value).expect("test divisor must be nonzero")
+}
+
+fn parts(value: u8) -> NonZeroU8 {
+    NonZeroU8::new(value).expect("test allocation parts must be nonzero")
+}
+
+fn minor_units(values: &[Money]) -> Vec<i128> {
+    values.iter().map(Money::minor_units).collect()
 }
 
 #[test]
@@ -627,4 +635,90 @@ fn halfway_comparison_supports_u128_max_without_overflow() {
             .minor_units(),
         -1
     );
+}
+
+#[test]
+fn allocate_splits_even_positive_amounts() {
+    let money = Money::from_minor_units(1_002, currency("USD", 2));
+
+    let allocations = money.allocate(parts(3));
+
+    assert_eq!(minor_units(&allocations), vec![334, 334, 334]);
+}
+
+#[test]
+fn allocate_adds_positive_remainder_to_last_part() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let allocations = money.allocate(parts(3));
+
+    assert_eq!(minor_units(&allocations), vec![333, 333, 334]);
+}
+
+#[test]
+fn allocate_adds_larger_positive_remainder_to_last_part() {
+    let money = Money::from_minor_units(1_001, currency("USD", 2));
+
+    let allocations = money.allocate(parts(3));
+
+    assert_eq!(minor_units(&allocations), vec![333, 333, 335]);
+}
+
+#[test]
+fn allocate_adds_negative_remainder_to_last_part() {
+    let money = Money::from_minor_units(-1_000, currency("USD", 2));
+
+    let allocations = money.allocate(parts(3));
+
+    assert_eq!(minor_units(&allocations), vec![-333, -333, -334]);
+}
+
+#[test]
+fn allocate_preserves_exact_total() {
+    let money = Money::from_minor_units(1_001, currency("USD", 2));
+
+    let allocations = money.allocate(parts(3));
+    let allocated_total: i128 = allocations.iter().map(Money::minor_units).sum();
+
+    assert_eq!(allocated_total, money.minor_units());
+}
+
+#[test]
+fn allocate_preserves_currency_definition() {
+    let money = Money::from_minor_units(1_000, currency("XYZ", 4));
+
+    let allocations = money.allocate(parts(3));
+
+    assert!(
+        allocations
+            .iter()
+            .all(|allocation| allocation.currency() == money.currency())
+    );
+}
+
+#[test]
+fn allocate_single_part_returns_original_money() {
+    let money = Money::from_minor_units(-1_000, currency("USD", 2));
+
+    let allocations = money.allocate(parts(1));
+
+    assert_eq!(allocations, vec![money]);
+}
+
+#[test]
+fn allocate_handles_zero_amount() {
+    let money = Money::from_minor_units(0, currency("USD", 2));
+
+    let allocations = money.allocate(parts(3));
+
+    assert_eq!(minor_units(&allocations), vec![0, 0, 0]);
+}
+
+#[test]
+fn allocate_handles_i128_min_without_overflow() {
+    let money = Money::from_minor_units(i128::MIN, currency("USD", 2));
+
+    let allocations = money.allocate(parts(1));
+
+    assert_eq!(allocations, vec![money]);
 }
