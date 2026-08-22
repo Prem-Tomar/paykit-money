@@ -1,8 +1,8 @@
 use std::num::{NonZeroU8, NonZeroU128};
 
 use paykit_money::{
-    Currency, Money, MoneyAllocationError, MoneyError, MoneyParseError, MoneyRateError, Rate,
-    RoundingMode,
+    Currency, FeeFormula, FeeFormulaError, FeeSchedule, FeeScheduleError, Money,
+    MoneyAllocationError, MoneyError, MoneyParseError, MoneyRateError, Rate, RoundingMode,
 };
 
 fn currency(code: &str, minor_units: u8) -> Currency {
@@ -1034,5 +1034,390 @@ fn displays_rate_overflow_error() {
     assert_eq!(
         MoneyRateError::AmountOverflow.to_string(),
         "rated money amount overflowed"
+    );
+}
+
+#[test]
+fn fee_formula_exposes_configured_components() {
+    let usd = currency("USD", 2);
+    let fixed = Money::from_minor_units(30, usd);
+    let formula = FeeFormula::new(Rate::from_basis_points(250), fixed.clone());
+
+    assert_eq!(formula.rate(), Rate::from_basis_points(250));
+    assert_eq!(formula.fixed(), &fixed);
+}
+
+#[test]
+fn fee_formula_calculates_variable_plus_fixed_fee() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(10_000, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd),
+    );
+
+    let fee = formula
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee formula should calculate");
+
+    assert_eq!(fee.minor_units(), 280);
+    assert_eq!(fee.currency(), amount.currency());
+}
+
+#[test]
+fn fee_formula_supports_zero_fixed_fee() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(10_000, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(0, usd),
+    );
+
+    let fee = formula
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee formula should calculate");
+
+    assert_eq!(fee.minor_units(), 250);
+}
+
+#[test]
+fn fee_formula_supports_zero_rate() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(10_000, usd.clone());
+    let formula = FeeFormula::new(Rate::from_basis_points(0), Money::from_minor_units(30, usd));
+
+    let fee = formula
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee formula should calculate");
+
+    assert_eq!(fee.minor_units(), 30);
+}
+
+#[test]
+fn fee_formula_applies_rounding_to_variable_component() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(1, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(5_000),
+        Money::from_minor_units(30, usd),
+    );
+
+    let half_even_fee = formula
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee formula should calculate");
+    let half_away_fee = formula
+        .calculate(&amount, RoundingMode::HalfAwayFromZero)
+        .expect("valid fee formula should calculate");
+
+    assert_eq!(half_even_fee.minor_units(), 30);
+    assert_eq!(half_away_fee.minor_units(), 31);
+}
+
+#[test]
+fn fee_formula_handles_negative_amounts_as_foundational_money_values() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(-10_000, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd),
+    );
+
+    let fee = formula
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee formula should calculate");
+
+    assert_eq!(fee.minor_units(), -220);
+}
+
+#[test]
+fn fee_formula_rejects_fixed_fee_currency_mismatch() {
+    let amount = Money::from_minor_units(10_000, currency("USD", 2));
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, currency("EUR", 2)),
+    );
+
+    let result = formula.calculate(&amount, RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(FeeFormulaError::CurrencyMismatch));
+}
+
+#[test]
+fn fee_formula_rejects_same_code_with_different_minor_unit_scale() {
+    let amount = Money::from_minor_units(10_000, currency("USD", 2));
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, currency("USD", 3)),
+    );
+
+    let result = formula.calculate(&amount, RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(FeeFormulaError::CurrencyMismatch));
+}
+
+#[test]
+fn fee_formula_rejects_variable_fee_overflow() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(i128::MAX, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(10_001),
+        Money::from_minor_units(0, usd),
+    );
+
+    let result = formula.calculate(&amount, RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(FeeFormulaError::AmountOverflow));
+}
+
+#[test]
+fn fee_formula_rejects_final_fee_overflow() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(i128::MAX, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(10_000),
+        Money::from_minor_units(1, usd),
+    );
+
+    let result = formula.calculate(&amount, RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(FeeFormulaError::AmountOverflow));
+}
+
+#[test]
+fn displays_fee_formula_currency_mismatch_error() {
+    assert_eq!(
+        FeeFormulaError::CurrencyMismatch.to_string(),
+        "fee formula currency mismatch"
+    );
+}
+
+#[test]
+fn displays_fee_formula_amount_overflow_error() {
+    assert_eq!(
+        FeeFormulaError::AmountOverflow.to_string(),
+        "fee formula amount overflowed"
+    );
+}
+
+#[test]
+fn fee_schedule_exposes_configured_components() {
+    let usd = currency("USD", 2);
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd.clone()),
+    );
+    let minimum = Money::from_minor_units(50, usd.clone());
+    let maximum = Money::from_minor_units(2_000, usd);
+
+    let schedule = FeeSchedule::new(
+        formula.clone(),
+        Some(minimum.clone()),
+        Some(maximum.clone()),
+    )
+    .expect("valid caps should create a schedule");
+
+    assert_eq!(schedule.formula(), &formula);
+    assert_eq!(schedule.minimum(), Some(&minimum));
+    assert_eq!(schedule.maximum(), Some(&maximum));
+}
+
+#[test]
+fn fee_schedule_without_caps_returns_formula_fee() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(10_000, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd),
+    );
+    let schedule =
+        FeeSchedule::new(formula, None, None).expect("uncapped schedule should be valid");
+
+    let fee = schedule
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee schedule should calculate");
+
+    assert_eq!(fee.minor_units(), 280);
+    assert_eq!(fee.currency(), amount.currency());
+}
+
+#[test]
+fn fee_schedule_applies_minimum_cap() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(100, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(0, usd.clone()),
+    );
+    let schedule = FeeSchedule::new(formula, Some(Money::from_minor_units(50, usd)), None)
+        .expect("valid minimum cap should create a schedule");
+
+    let fee = schedule
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee schedule should calculate");
+
+    assert_eq!(fee.minor_units(), 50);
+}
+
+#[test]
+fn fee_schedule_applies_maximum_cap() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(100_000, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd.clone()),
+    );
+    let schedule = FeeSchedule::new(formula, None, Some(Money::from_minor_units(2_000, usd)))
+        .expect("valid maximum cap should create a schedule");
+
+    let fee = schedule
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee schedule should calculate");
+
+    assert_eq!(fee.minor_units(), 2_000);
+}
+
+#[test]
+fn fee_schedule_keeps_fee_inside_minimum_and_maximum_caps() {
+    let usd = currency("USD", 2);
+    let amount = Money::from_minor_units(10_000, usd.clone());
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd.clone()),
+    );
+    let schedule = FeeSchedule::new(
+        formula,
+        Some(Money::from_minor_units(50, usd.clone())),
+        Some(Money::from_minor_units(2_000, usd)),
+    )
+    .expect("valid caps should create a schedule");
+
+    let fee = schedule
+        .calculate(&amount, RoundingMode::HalfEven)
+        .expect("valid fee schedule should calculate");
+
+    assert_eq!(fee.minor_units(), 280);
+}
+
+#[test]
+fn fee_schedule_rejects_minimum_currency_mismatch() {
+    let usd = currency("USD", 2);
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd),
+    );
+
+    let result = FeeSchedule::new(
+        formula,
+        Some(Money::from_minor_units(50, currency("EUR", 2))),
+        None,
+    );
+
+    assert_eq!(result, Err(FeeScheduleError::CurrencyMismatch));
+}
+
+#[test]
+fn fee_schedule_rejects_maximum_currency_mismatch() {
+    let usd = currency("USD", 2);
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd),
+    );
+
+    let result = FeeSchedule::new(
+        formula,
+        None,
+        Some(Money::from_minor_units(2_000, currency("EUR", 2))),
+    );
+
+    assert_eq!(result, Err(FeeScheduleError::CurrencyMismatch));
+}
+
+#[test]
+fn fee_schedule_rejects_same_code_with_different_cap_scale() {
+    let usd = currency("USD", 2);
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd),
+    );
+
+    let result = FeeSchedule::new(
+        formula,
+        Some(Money::from_minor_units(50, currency("USD", 3))),
+        None,
+    );
+
+    assert_eq!(result, Err(FeeScheduleError::CurrencyMismatch));
+}
+
+#[test]
+fn fee_schedule_rejects_minimum_above_maximum() {
+    let usd = currency("USD", 2);
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd.clone()),
+    );
+
+    let result = FeeSchedule::new(
+        formula,
+        Some(Money::from_minor_units(2_001, usd.clone())),
+        Some(Money::from_minor_units(2_000, usd)),
+    );
+
+    assert_eq!(result, Err(FeeScheduleError::InvalidCapRange));
+}
+
+#[test]
+fn fee_schedule_maps_formula_currency_mismatch() {
+    let usd = currency("USD", 2);
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(250),
+        Money::from_minor_units(30, usd),
+    );
+    let schedule =
+        FeeSchedule::new(formula, None, None).expect("uncapped schedule should be valid");
+    let amount = Money::from_minor_units(10_000, currency("EUR", 2));
+
+    let result = schedule.calculate(&amount, RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(FeeScheduleError::CurrencyMismatch));
+}
+
+#[test]
+fn fee_schedule_maps_formula_overflow() {
+    let usd = currency("USD", 2);
+    let formula = FeeFormula::new(
+        Rate::from_basis_points(10_001),
+        Money::from_minor_units(0, usd.clone()),
+    );
+    let schedule =
+        FeeSchedule::new(formula, None, None).expect("uncapped schedule should be valid");
+    let amount = Money::from_minor_units(i128::MAX, usd);
+
+    let result = schedule.calculate(&amount, RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(FeeScheduleError::AmountOverflow));
+}
+
+#[test]
+fn displays_fee_schedule_currency_mismatch_error() {
+    assert_eq!(
+        FeeScheduleError::CurrencyMismatch.to_string(),
+        "fee schedule currency mismatch"
+    );
+}
+
+#[test]
+fn displays_fee_schedule_invalid_cap_range_error() {
+    assert_eq!(
+        FeeScheduleError::InvalidCapRange.to_string(),
+        "fee schedule cap range is invalid"
+    );
+}
+
+#[test]
+fn displays_fee_schedule_amount_overflow_error() {
+    assert_eq!(
+        FeeScheduleError::AmountOverflow.to_string(),
+        "fee schedule amount overflowed"
     );
 }

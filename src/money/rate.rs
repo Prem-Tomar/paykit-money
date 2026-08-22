@@ -12,6 +12,37 @@ pub struct Rate {
     basis_points: u32,
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for Rate {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut state = serializer.serialize_struct("Rate", 1)?;
+        state.serialize_field("basis_points", &self.basis_points)?;
+        state.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Rate {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct RateWire {
+            basis_points: u32,
+        }
+
+        let wire = RateWire::deserialize(deserializer)?;
+
+        Ok(Rate::from_basis_points(wire.basis_points))
+    }
+}
+
 impl Rate {
     const BASIS_POINT_DENOMINATOR: u128 = 10_000;
 

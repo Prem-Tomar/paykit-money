@@ -1,4 +1,5 @@
 mod allocation;
+mod fee_formula;
 mod rate;
 mod rounding_mode;
 
@@ -12,6 +13,7 @@ use std::fmt::Display;
 use std::num::NonZeroU128;
 
 pub use allocation::MoneyAllocationError;
+pub use fee_formula::{FeeFormula, FeeFormulaError, FeeSchedule, FeeScheduleError};
 pub use rate::{MoneyRateError, Rate};
 pub use rounding_mode::RoundingMode;
 
