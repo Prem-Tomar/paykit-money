@@ -114,6 +114,26 @@ types cannot exactly represent 128-bit integers. Deserialization rejects numeric
 malformed, and overflowing amount values. The nested currency is validated using the same
 invariants as `Currency::new`.
 
+## Exact rates
+
+`Rate` stores non-negative rates as integer basis points. One basis point is `0.01%`, so
+`10_000` basis points is `100.00%`. Human-readable percentage parsing and display remain exact:
+
+```rust
+use paykit_money::Rate;
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let rate = "2.5%".parse::<Rate>()?;
+assert_eq!(rate.basis_points(), 250);
+assert_eq!(rate.to_string(), "2.50%");
+# Ok(())
+# }
+```
+
+Parsing requires `%`, accepts up to two fractional percentage digits, and rejects excess
+precision instead of rounding. The optional Serde representation continues to use the explicit
+`basis_points` integer field rather than the display string.
+
 ## Validation
 
 ```text

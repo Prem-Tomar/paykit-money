@@ -14,7 +14,7 @@ use std::num::NonZeroU128;
 
 pub use allocation::MoneyAllocationError;
 pub use fee_formula::{FeeFormula, FeeFormulaError, FeeSchedule, FeeScheduleError};
-pub use rate::{MoneyRateError, Rate};
+pub use rate::{MoneyRateError, Rate, RateParseError};
 pub use rounding_mode::RoundingMode;
 
 /// An exact monetary amount expressed in a currency's minor units.

@@ -1,5 +1,6 @@
 use std::fmt;
 use std::num::NonZeroU128;
+use std::str::FromStr;
 
 use super::{Money, RoundingMode, restore_sign};
 
@@ -63,6 +64,123 @@ impl Rate {
             .expect("basis point denominator must be nonzero")
     }
 }
+
+impl FromStr for Rate {
+    type Err = RateParseError;
+
+    /// Parses a non-negative percentage ending in `%` into exact basis points.
+    ///
+    /// Surrounding whitespace is accepted. The fractional percentage may contain one or two
+    /// digits; a one-digit fraction is right-padded. Input with greater precision is rejected
+    /// instead of rounded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use paykit_money::Rate;
+    ///
+    /// let rate = "2.5%".parse::<Rate>()?;
+    /// assert_eq!(rate.basis_points(), 250);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let input = input.trim();
+        if input.is_empty() {
+            return Err(RateParseError::Empty);
+        }
+
+        let percentage = input
+            .strip_suffix('%')
+            .ok_or(RateParseError::InvalidFormat)?;
+        let mut parts = percentage.split('.');
+        let whole = parts.next().ok_or(RateParseError::InvalidFormat)?;
+        let fractional = parts.next();
+
+        if whole.is_empty()
+            || parts.next().is_some()
+            || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(RateParseError::InvalidFormat);
+        }
+
+        let fractional_basis_points = match fractional {
+            None => 0,
+            Some(fractional) => {
+                if fractional.is_empty() || !fractional.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(RateParseError::InvalidFormat);
+                }
+                if fractional.len() > 2 {
+                    return Err(RateParseError::TooManyFractionalDigits);
+                }
+
+                let parsed = parse_rate_digits(fractional)?;
+                if fractional.len() == 1 {
+                    parsed * 10
+                } else {
+                    parsed
+                }
+            }
+        };
+
+        let basis_points = parse_rate_digits(whole)?
+            .checked_mul(100)
+            .and_then(|value| value.checked_add(fractional_basis_points))
+            .ok_or(RateParseError::RateOverflow)?;
+
+        Ok(Self::from_basis_points(basis_points))
+    }
+}
+
+impl fmt::Display for Rate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let whole = self.basis_points / 100;
+        let fractional = self.basis_points % 100;
+
+        write!(formatter, "{whole}.{fractional:02}%")
+    }
+}
+
+fn parse_rate_digits(input: &str) -> Result<u32, RateParseError> {
+    let mut value = 0_u32;
+
+    for byte in input.bytes() {
+        let digit = u32::from(byte - b'0');
+        value = value
+            .checked_mul(10)
+            .and_then(|value| value.checked_add(digit))
+            .ok_or(RateParseError::RateOverflow)?;
+    }
+
+    Ok(value)
+}
+
+/// An error returned when parsing a percentage string into a [`Rate`].
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum RateParseError {
+    /// The input contains no percentage value after surrounding whitespace is removed.
+    Empty,
+    /// The input is not an unsigned decimal percentage ending in `%`.
+    InvalidFormat,
+    /// The percentage contains more than two fractional digits.
+    TooManyFractionalDigits,
+    /// The exact basis-point value cannot be represented by `u32`.
+    RateOverflow,
+}
+
+impl fmt::Display for RateParseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => formatter.write_str("rate percentage is empty"),
+            Self::InvalidFormat => formatter.write_str("rate percentage format is invalid"),
+            Self::TooManyFractionalDigits => {
+                formatter.write_str("rate percentage has more than two fractional digits")
+            }
+            Self::RateOverflow => formatter.write_str("rate percentage exceeds u32 basis points"),
+        }
+    }
+}
+
+impl std::error::Error for RateParseError {}
 
 impl Money {
     /// Applies a basis-point rate using explicit rounding.

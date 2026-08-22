@@ -36,5 +36,5 @@ mod money;
 pub use currency::{Currency, CurrencyError};
 pub use money::{
     FeeFormula, FeeFormulaError, FeeSchedule, FeeScheduleError, Money, MoneyAllocationError,
-    MoneyError, MoneyParseError, MoneyRateError, Rate, RoundingMode,
+    MoneyError, MoneyParseError, MoneyRateError, Rate, RateParseError, RoundingMode,
 };
