@@ -1,3 +1,5 @@
+mod allocation;
+mod rate;
 mod rounding_mode;
 
 use crate::Currency;
@@ -7,8 +9,10 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Display;
-use std::num::{NonZeroU8, NonZeroU128};
+use std::num::NonZeroU128;
 
+pub use allocation::MoneyAllocationError;
+pub use rate::{MoneyRateError, Rate};
 pub use rounding_mode::RoundingMode;
 
 /// An exact monetary amount expressed in a currency's minor units.
@@ -298,40 +302,6 @@ impl Money {
         Money::from_minor_units(rounded_minor_units, self.currency.clone())
     }
 
-    pub fn allocate(&self, parts: NonZeroU8) -> Vec<Money> {
-        let mut allocated_parts = Vec::with_capacity(parts.get() as usize);
-        let magnitude = self.minor_units.unsigned_abs();
-        let parts = u128::from(parts.get());
-        let quotient = magnitude / parts;
-        let remainder = magnitude % parts;
-        let is_negative = self.minor_units().is_negative();
-
-        for _ in 0..(parts - 1) {
-            allocated_parts.push(Money::from_minor_units(
-                Self::get_signed_minor_units(quotient, is_negative),
-                self.currency().clone(),
-            ));
-        }
-        allocated_parts.push(Money::from_minor_units(
-            Self::get_signed_minor_units(quotient + remainder, is_negative),
-            self.currency().clone(),
-        ));
-        allocated_parts
-    }
-
-    fn get_signed_minor_units(quotient: u128, is_negative: bool) -> i128 {
-        if is_negative {
-            // `i128::MIN` has no positive `i128` counterpart, so restore it directly.
-            if quotient == i128::MIN.unsigned_abs() {
-                i128::MIN
-            } else {
-                -i128::try_from(quotient).expect("Quotient to be within limits of i128")
-            }
-        } else {
-            i128::try_from(quotient).expect("Quotient to be within limits of i128")
-        }
-    }
-
     fn validated_currency(left: &Money, right: &Money) -> bool {
         left.currency() == right.currency()
     }
@@ -399,7 +369,7 @@ fn parse_unsigned_u128(input: &str) -> Result<u128, MoneyParseError> {
     Ok(value)
 }
 
-fn restore_sign(magnitude: u128, is_negative: bool) -> i128 {
+pub(super) fn restore_sign(magnitude: u128, is_negative: bool) -> i128 {
     if is_negative {
         // `i128::MIN` has no positive `i128` counterpart, so restore it directly.
         if magnitude == i128::MIN.unsigned_abs() {

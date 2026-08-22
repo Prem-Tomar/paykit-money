@@ -1,6 +1,9 @@
 use std::num::{NonZeroU8, NonZeroU128};
 
-use paykit_money::{Currency, Money, MoneyError, MoneyParseError, RoundingMode};
+use paykit_money::{
+    Currency, Money, MoneyAllocationError, MoneyError, MoneyParseError, MoneyRateError, Rate,
+    RoundingMode,
+};
 
 fn currency(code: &str, minor_units: u8) -> Currency {
     Currency::new(code, minor_units)
@@ -721,4 +724,315 @@ fn allocate_handles_i128_min_without_overflow() {
     let allocations = money.allocate(parts(1));
 
     assert_eq!(allocations, vec![money]);
+}
+
+#[test]
+fn weighted_allocation_applies_exact_weights() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[70, 30])
+        .expect("valid weights should allocate");
+
+    assert_eq!(minor_units(&allocations), vec![700, 300]);
+}
+
+#[test]
+fn weighted_allocation_assigns_remainder_to_last_part() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[1, 1, 1])
+        .expect("valid weights should allocate");
+
+    assert_eq!(minor_units(&allocations), vec![333, 333, 334]);
+}
+
+#[test]
+fn weighted_allocation_assigns_larger_remainder_to_last_part() {
+    let money = Money::from_minor_units(1_001, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[1, 1, 1])
+        .expect("valid weights should allocate");
+
+    assert_eq!(minor_units(&allocations), vec![333, 333, 335]);
+}
+
+#[test]
+fn weighted_allocation_handles_negative_amounts() {
+    let money = Money::from_minor_units(-1_000, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[1, 1, 1])
+        .expect("valid weights should allocate");
+
+    assert_eq!(minor_units(&allocations), vec![-333, -333, -334]);
+}
+
+#[test]
+fn weighted_allocation_preserves_exact_total() {
+    let money = Money::from_minor_units(1_001, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[2, 3, 5])
+        .expect("valid weights should allocate");
+    let allocated_total: i128 = allocations.iter().map(Money::minor_units).sum();
+
+    assert_eq!(allocated_total, money.minor_units());
+}
+
+#[test]
+fn weighted_allocation_preserves_currency_definition() {
+    let money = Money::from_minor_units(1_000, currency("XYZ", 4));
+
+    let allocations = money
+        .allocate_weighted(&[2, 3, 5])
+        .expect("valid weights should allocate");
+
+    assert!(
+        allocations
+            .iter()
+            .all(|allocation| allocation.currency() == money.currency())
+    );
+}
+
+#[test]
+fn weighted_allocation_allows_zero_weight_entries() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[0, 1, 0])
+        .expect("valid weights should allocate");
+
+    assert_eq!(minor_units(&allocations), vec![0, 1_000, 0]);
+}
+
+#[test]
+fn weighted_allocation_single_weight_returns_original_money() {
+    let money = Money::from_minor_units(-1_000, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[1])
+        .expect("valid weights should allocate");
+
+    assert_eq!(allocations, vec![money]);
+}
+
+#[test]
+fn weighted_allocation_handles_zero_amount() {
+    let money = Money::from_minor_units(0, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[2, 3, 5])
+        .expect("valid weights should allocate");
+
+    assert_eq!(minor_units(&allocations), vec![0, 0, 0]);
+}
+
+#[test]
+fn weighted_allocation_handles_i128_min_without_overflow() {
+    let money = Money::from_minor_units(i128::MIN, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[1])
+        .expect("valid weights should allocate");
+
+    assert_eq!(allocations, vec![money]);
+}
+
+#[test]
+fn weighted_allocation_handles_large_values_without_multiplication_overflow() {
+    let money = Money::from_minor_units(i128::MAX, currency("USD", 2));
+
+    let allocations = money
+        .allocate_weighted(&[u32::MAX, u32::MAX])
+        .expect("valid weights should allocate");
+    let allocated_total: i128 = allocations.iter().map(Money::minor_units).sum();
+
+    assert_eq!(allocated_total, money.minor_units());
+    assert_eq!(allocations.len(), 2);
+}
+
+#[test]
+fn weighted_allocation_rejects_empty_weights() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let result = money.allocate_weighted(&[]);
+
+    assert_eq!(result, Err(MoneyAllocationError::EmptyWeights));
+}
+
+#[test]
+fn weighted_allocation_rejects_zero_total_weight() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let result = money.allocate_weighted(&[0, 0]);
+
+    assert_eq!(result, Err(MoneyAllocationError::ZeroTotalWeight));
+}
+
+#[test]
+fn displays_empty_weights_allocation_error() {
+    assert_eq!(
+        MoneyAllocationError::EmptyWeights.to_string(),
+        "allocation weights are empty"
+    );
+}
+
+#[test]
+fn displays_zero_total_weight_allocation_error() {
+    assert_eq!(
+        MoneyAllocationError::ZeroTotalWeight.to_string(),
+        "allocation weights sum to zero"
+    );
+}
+
+#[test]
+fn rate_stores_basis_points() {
+    let rate = Rate::from_basis_points(250);
+
+    assert_eq!(rate.basis_points(), 250);
+}
+
+#[test]
+fn apply_rate_returns_zero_for_zero_basis_points() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let result = money
+        .apply_rate(Rate::from_basis_points(0), RoundingMode::HalfEven)
+        .expect("zero rate should apply");
+
+    assert_eq!(result.minor_units(), 0);
+    assert_eq!(result.currency(), money.currency());
+}
+
+#[test]
+fn apply_rate_calculates_exact_basis_point_result() {
+    let money = Money::from_minor_units(10_000, currency("USD", 2));
+
+    let result = money
+        .apply_rate(Rate::from_basis_points(250), RoundingMode::HalfEven)
+        .expect("valid rate should apply");
+
+    assert_eq!(result.minor_units(), 250);
+}
+
+#[test]
+fn apply_rate_rounds_half_even() {
+    let money = Money::from_minor_units(1, currency("USD", 2));
+
+    let result = money
+        .apply_rate(Rate::from_basis_points(5_000), RoundingMode::HalfEven)
+        .expect("valid rate should apply");
+
+    assert_eq!(result.minor_units(), 0);
+}
+
+#[test]
+fn apply_rate_rounds_half_away_from_zero() {
+    let money = Money::from_minor_units(1, currency("USD", 2));
+
+    let result = money
+        .apply_rate(
+            Rate::from_basis_points(5_000),
+            RoundingMode::HalfAwayFromZero,
+        )
+        .expect("valid rate should apply");
+
+    assert_eq!(result.minor_units(), 1);
+}
+
+#[test]
+fn apply_rate_rounds_negative_values_away_from_zero() {
+    let money = Money::from_minor_units(-1, currency("USD", 2));
+
+    let result = money
+        .apply_rate(
+            Rate::from_basis_points(5_000),
+            RoundingMode::HalfAwayFromZero,
+        )
+        .expect("valid rate should apply");
+
+    assert_eq!(result.minor_units(), -1);
+}
+
+#[test]
+fn apply_rate_supports_rates_above_one_hundred_percent() {
+    let money = Money::from_minor_units(1_000, currency("USD", 2));
+
+    let result = money
+        .apply_rate(Rate::from_basis_points(12_500), RoundingMode::HalfEven)
+        .expect("valid rate should apply");
+
+    assert_eq!(result.minor_units(), 1_250);
+}
+
+#[test]
+fn apply_rate_preserves_currency_definition() {
+    let money = Money::from_minor_units(1_000, currency("XYZ", 4));
+
+    let result = money
+        .apply_rate(Rate::from_basis_points(250), RoundingMode::HalfEven)
+        .expect("valid rate should apply");
+
+    assert_eq!(result.currency(), money.currency());
+}
+
+#[test]
+fn apply_rate_handles_i128_boundaries_at_one_hundred_percent() {
+    let usd = currency("USD", 2);
+    let maximum = Money::from_minor_units(i128::MAX, usd.clone());
+    let minimum = Money::from_minor_units(i128::MIN, usd);
+    let full_rate = Rate::from_basis_points(10_000);
+
+    assert_eq!(
+        maximum
+            .apply_rate(full_rate, RoundingMode::HalfEven)
+            .expect("one hundred percent of i128::MAX should fit")
+            .minor_units(),
+        i128::MAX
+    );
+    assert_eq!(
+        minimum
+            .apply_rate(full_rate, RoundingMode::HalfEven)
+            .expect("one hundred percent of i128::MIN should fit")
+            .minor_units(),
+        i128::MIN
+    );
+}
+
+#[test]
+fn apply_rate_rejects_positive_amount_overflow() {
+    let money = Money::from_minor_units(i128::MAX, currency("USD", 2));
+
+    let result = money.apply_rate(Rate::from_basis_points(10_001), RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(MoneyRateError::AmountOverflow));
+}
+
+#[test]
+fn apply_rate_rejects_negative_amount_overflow() {
+    let money = Money::from_minor_units(i128::MIN, currency("USD", 2));
+
+    let result = money.apply_rate(Rate::from_basis_points(10_001), RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(MoneyRateError::AmountOverflow));
+}
+
+#[test]
+fn apply_rate_handles_large_values_without_multiplication_overflow() {
+    let money = Money::from_minor_units(i128::MAX, currency("USD", 2));
+
+    let result = money.apply_rate(Rate::from_basis_points(u32::MAX), RoundingMode::HalfEven);
+
+    assert_eq!(result, Err(MoneyRateError::AmountOverflow));
+}
+
+#[test]
+fn displays_rate_overflow_error() {
+    assert_eq!(
+        MoneyRateError::AmountOverflow.to_string(),
+        "rated money amount overflowed"
+    );
 }

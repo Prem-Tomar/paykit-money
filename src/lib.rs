@@ -34,4 +34,6 @@ mod currency;
 mod money;
 
 pub use currency::{Currency, CurrencyError};
-pub use money::{Money, MoneyError, MoneyParseError, RoundingMode};
+pub use money::{
+    Money, MoneyAllocationError, MoneyError, MoneyParseError, MoneyRateError, Rate, RoundingMode,
+};
